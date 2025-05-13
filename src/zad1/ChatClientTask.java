@@ -18,6 +18,7 @@ public class ChatClientTask extends FutureTask<Void> {
         super(() -> {
             if (wait > 0) Thread.sleep(wait);
             client.login();
+            if (wait > 0) Thread.sleep(wait);
             for (String msg : msgs) {
                 client.send(msg);
                 if (wait > 0) Thread.sleep(wait);
