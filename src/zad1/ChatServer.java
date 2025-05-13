@@ -43,12 +43,14 @@ public class ChatServer {
     private void runLoop() {
         try {
             while (running) {
+                if (!selector.isOpen()) {
+                    break;
+                }
                 try {
                     selector.select();
                 } catch (ClosedSelectorException e) {
                     break;
                 }
-
                 if (!running || !selector.isOpen()) break;
 
                 Iterator<SelectionKey> it = selector.selectedKeys().iterator();
@@ -63,6 +65,7 @@ public class ChatServer {
         } catch (IOException ignored) {
         }
     }
+
 
     private void acceptClient() throws IOException {
         SocketChannel sc = serverChannel.accept();
@@ -131,22 +134,27 @@ public class ChatServer {
         ByteBuffer bb = ByteBuffer.wrap((msg + "\n").getBytes(StandardCharsets.UTF_8));
         for (SocketChannel sc : clientIds.keySet()) {
             try {
-                sc.write(bb.duplicate());
+                if (sc.isOpen()) {
+                    sc.write(bb.duplicate());
+                }
             } catch (IOException ignored) {}
         }
     }
+
 
     public void stopServer() throws IOException {
         running = false;
         selector.wakeup();
 
         try {
-            selector.select(200);
-            Iterator<SelectionKey> it = selector.selectedKeys().iterator();
-            while (it.hasNext()) {
-                SelectionKey key = it.next();
-                it.remove();
-                if (key.isValid() && key.isReadable()) handleRead(key);
+            if (selector.isOpen()) {
+                selector.select(200);
+                Iterator<SelectionKey> it = selector.selectedKeys().iterator();
+                while (it.hasNext()) {
+                    SelectionKey key = it.next();
+                    it.remove();
+                    if (key.isValid() && key.isReadable()) handleRead(key);
+                }
             }
         } catch (IOException | ClosedSelectorException ignored) {}
 
@@ -154,6 +162,7 @@ public class ChatServer {
         selector.close();
         System.out.println("Server stopped");
     }
+
 
     public String getServerLog() {
         return serverLog.toString();

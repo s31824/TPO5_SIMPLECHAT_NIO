@@ -9,7 +9,7 @@ package zad1;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.channels.SocketChannel;
+import java.nio.channels.*;
 import java.nio.charset.StandardCharsets;
 
 public class ChatClient {
@@ -17,6 +17,7 @@ public class ChatClient {
     private final int port;
     private final String id;
     private SocketChannel channel;
+    private Selector selector;
     private final StringBuilder chatView;
     private volatile boolean readerRunning = false;
 
@@ -45,6 +46,7 @@ public class ChatClient {
         }
         readerRunning = false;
         channel.close();
+        selector.close();
     }
 
     public String getChatView() {
@@ -53,12 +55,18 @@ public class ChatClient {
 
     private void openChannel() throws IOException {
         channel = SocketChannel.open(new InetSocketAddress(host, port));
-        channel.configureBlocking(true);
+        channel.configureBlocking(false);
+
+
+        selector = Selector.open();
+        channel.register(selector, SelectionKey.OP_READ | SelectionKey.OP_WRITE);
     }
 
     private void sendRaw(String line) throws IOException {
         ByteBuffer bb = ByteBuffer.wrap((line + "\n").getBytes(StandardCharsets.UTF_8));
-        channel.write(bb);
+        while (bb.hasRemaining()) {
+            channel.write(bb);
+        }
     }
 
     private void startReader() {
@@ -67,26 +75,49 @@ public class ChatClient {
             ByteBuffer buf = ByteBuffer.allocate(4096);
             try {
                 while (readerRunning) {
-                    buf.clear();
-                    int r = channel.read(buf);
-                    if (r < 0) break;
-                    if (r == 0) {
-                        Thread.sleep(10);
-                        continue;
+                    if (!selector.isOpen() || !channel.isOpen()) {
+                        break;
                     }
-                    buf.flip();
-                    String resp = StandardCharsets.UTF_8.decode(buf).toString();
-                    synchronized (chatView) {
-                        for (String l : resp.split("\n")) {
-                            if (!l.isEmpty()) chatView.append(l).append("\n");
+
+                    selector.select();
+
+                    if (!selector.isOpen() || !channel.isOpen()) {
+                        break;
+                    }
+
+                    for (SelectionKey key : selector.selectedKeys()) {
+                        selector.selectedKeys().remove(key);
+
+                        if (key.isReadable()) {
+                            buf.clear();
+                            int r = channel.read(buf);
+                            if (r < 0) break;
+                            buf.flip();
+
+                            String resp = StandardCharsets.UTF_8.decode(buf).toString();
+                            synchronized (chatView) {
+                                for (String line : resp.split("\n")) {
+                                    if (!line.isEmpty()) {
+                                        chatView.append(line).append("\n");
+                                    }
+                                }
+                            }
                         }
                     }
                 }
-            } catch (IOException | InterruptedException ignored) {
+            } catch (IOException ignored) {
+            } finally {
+                readerRunning = false;
             }
         }, "Reader-" + id).start();
     }
+
+
+
 }
+
+
+
 
 
 
